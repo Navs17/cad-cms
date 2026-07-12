@@ -68,6 +68,12 @@ then verify with:
 python scripts/check_data.py
 ```
 
+### Tests
+
+```bash
+pytest tests/
+```
+
 ## Running
 
 > Scaffolding stage — commands below will be filled in as each phase lands.
@@ -119,7 +125,7 @@ Results are written as CSV to `results/` and plots to `results/figures/`.
 
 - [x] Phase 1 — repo scaffold
 - [x] Phase 2 — data loading + feature extraction + embedding cache
-- [ ] Phase 3 — memory + scorer + single-task baseline
+- [x] Phase 3 — memory + scorer + single-task baseline
 - [ ] Phase 4 — sequential loop, baselines (a)/(b), ACC/FM
 - [ ] Phase 5 — fast memory, score fusion, drift experiment, ablations
 - [ ] Phase 6 (optional) — CutPaste fine-tuning
