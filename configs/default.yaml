@@ -11,10 +11,13 @@ paths:
   figures_dir: results/figures
 
 # Domain-incremental task sequence. Add more MVTec categories here to extend.
+# "tablet" is not a stock MVTec AD category -- it's derived from a Roboflow
+# COCO tablet defect-detection export via scripts/convert_tablet_coco.py
+# (see data/README.md).
 tasks:
   - pill
   - capsule
-  - bottle
+  - tablet
 
 data:
   image_size: 224
