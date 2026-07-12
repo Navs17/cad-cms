@@ -87,3 +87,55 @@ def test_score_stream_with_fast_memory_never_updates_from_far_outliers():
     score_stream_with_fast_memory(outlier, medium, fast, fusion_weight=0.5, confidence_percentile=50, recent_scores=recent_scores)
 
     assert fast.num_updates == 0
+
+
+def test_on_sample_hook_does_not_change_scores_or_updates():
+    rng = np.random.default_rng(1)
+    embeddings = rng.normal(size=(40, 4))
+
+    medium = GaussianMemory(mean=np.zeros(4), covariance=np.eye(4), count=100)
+    fast_plain = FastMemory(medium, ema_rate=0.1, pullback_coefficient=0.05, shrinkage_alpha=0.1)
+    fast_hooked = FastMemory(medium, ema_rate=0.1, pullback_coefficient=0.05, shrinkage_alpha=0.1)
+
+    scores_plain = score_stream_with_fast_memory(
+        embeddings, medium, fast_plain, fusion_weight=0.5, confidence_percentile=50, recent_scores=deque(maxlen=200)
+    )
+    scores_hooked = score_stream_with_fast_memory(
+        embeddings,
+        medium,
+        fast_hooked,
+        fusion_weight=0.5,
+        confidence_percentile=50,
+        recent_scores=deque(maxlen=200),
+        on_sample=lambda *args: None,
+    )
+
+    np.testing.assert_allclose(scores_plain, scores_hooked)
+    assert fast_plain.num_updates == fast_hooked.num_updates
+    np.testing.assert_allclose(fast_plain.mean, fast_hooked.mean)
+    np.testing.assert_allclose(fast_plain.covariance, fast_hooked.covariance)
+
+
+def test_on_sample_hook_reports_correct_gate_decisions():
+    medium = GaussianMemory(mean=np.zeros(4), covariance=np.eye(4), count=100)
+    fast = FastMemory(medium, ema_rate=0.1, pullback_coefficient=0.05, shrinkage_alpha=0.1)
+
+    # Bootstrap history with small scores, then one huge outlier that must fail the gate.
+    recent_scores: deque = deque([0.1, 0.2, 0.15, 0.12, 0.18] * 10, maxlen=200)
+    embeddings = np.array([[0.0, 0.0, 0.0, 0.0], [100.0, 100.0, 100.0, 100.0]])
+
+    records = []
+    score_stream_with_fast_memory(
+        embeddings,
+        medium,
+        fast,
+        fusion_weight=0.5,
+        confidence_percentile=50,
+        recent_scores=recent_scores,
+        on_sample=lambda i, score, threshold, passed: records.append((i, score, threshold, passed)),
+    )
+
+    assert len(records) == 2
+    assert records[0][3] is True  # near-mean sample should pass the gate
+    assert records[1][3] is False  # far outlier should fail the gate
+    assert records[0][2] is not None and records[1][2] is not None  # history was non-empty for both

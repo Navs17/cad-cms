@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 
@@ -46,6 +46,7 @@ def score_stream_with_fast_memory(
     fusion_weight: float,
     confidence_percentile: float,
     recent_scores: deque,
+    on_sample: Optional[Callable[[int, float, Optional[float], bool], None]] = None,
 ) -> np.ndarray:
     """Score a sequential inference stream, adapting ``fast_memory`` online.
 
@@ -54,6 +55,13 @@ def score_stream_with_fast_memory(
     ``fast_memory.update``. ``recent_scores`` is mutated in place (a bounded
     deque) so the notion of "recent" can persist across calls, spanning a
     whole deployment stream rather than resetting per call.
+
+    ``on_sample``, if given, is called after each sample is processed (score
+    computed, gate decision made, update applied if gated in) with
+    ``(index, final_score, threshold_or_None, gate_passed)``. Purely an
+    observation hook for diagnostics -- it cannot affect scores or updates,
+    and is not called by default (``None``), so this is not a behavior
+    change for any existing caller.
     """
     embeddings = np.asarray(embeddings)
     final_scores = np.empty(len(embeddings))
@@ -65,10 +73,16 @@ def score_stream_with_fast_memory(
         final_score = fuse_scores(medium_score, fast_score, fusion_weight)
         final_scores[i] = final_score
 
+        threshold = None
+        gate_passed = False
         if recent_scores:
             threshold = percentile_threshold(recent_scores, confidence_percentile)
             if is_confidently_normal(final_score, threshold):
+                gate_passed = True
                 fast_memory.update(embedding, medium_memory)
         recent_scores.append(final_score)
+
+        if on_sample is not None:
+            on_sample(i, final_score, threshold, gate_passed)
 
     return final_scores

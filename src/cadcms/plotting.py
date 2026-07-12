@@ -43,6 +43,49 @@ def plot_auroc_per_task(
     plt.close(fig)
 
 
+# Validated categorical palette (light mode); see the dataviz skill's
+# references/palette.md. Fixed slot order, not cycled.
+_CATEGORICAL = {"blue": "#2a78d6", "aqua": "#1baf7a", "yellow": "#eda100"}
+
+
+def plot_gate_diagnostics(
+    window_t: np.ndarray,
+    pass_rate: np.ndarray,
+    normal_gate_recall: np.ndarray,
+    gate_purity: np.ndarray,
+    fast_mean_distance: np.ndarray,
+    save_path: str | Path,
+    title: str = "Confidence-gate diagnostics",
+) -> None:
+    """Two-panel diagnostic for the FAST-memory confidence gate over a stream:
+    top -- gate pass rate, fraction of true normals let through (recall), and
+    fraction of gated-in samples that were actually normal (purity); bottom --
+    how far the FAST mean has moved from the fused medium mean over time.
+    """
+    fig, (ax_gate, ax_drift) = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
+
+    ax_gate.plot(window_t, pass_rate, marker="o", color=_CATEGORICAL["blue"], label="gate pass rate")
+    ax_gate.plot(
+        window_t, normal_gate_recall, marker="o", color=_CATEGORICAL["aqua"], label="normal gate recall"
+    )
+    ax_gate.plot(window_t, gate_purity, marker="o", color=_CATEGORICAL["yellow"], label="gate purity")
+    ax_gate.set_ylabel("Fraction")
+    ax_gate.set_ylim(0.0, 1.05)
+    ax_gate.legend()
+    ax_gate.set_title(title)
+
+    ax_drift.plot(window_t, fast_mean_distance, marker="o", color=_CATEGORICAL["blue"])
+    ax_drift.set_xlabel("Drift severity (stream position, 0=start 1=end)")
+    ax_drift.set_ylabel("||fast.mean - medium.mean||")
+
+    fig.tight_layout()
+
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+
+
 def plot_drift_curve(
     window_t: np.ndarray,
     scores_by_method: dict[str, np.ndarray],

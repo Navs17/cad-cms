@@ -92,3 +92,58 @@ def write_drift_csv(window_t: np.ndarray, scores_by_method: dict[str, np.ndarray
         writer.writerow(["t"] + methods)
         for i, t in enumerate(window_t):
             writer.writerow([t] + [scores_by_method[m][i] for m in methods])
+
+
+def write_gate_records_csv(records: list[dict], path: str | Path) -> None:
+    """One row per stream sample: index, t, label, final_score, threshold,
+    gate_passed, fast_mean_dist_from_medium (see scripts/diagnose_drift_gate.py).
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["index", "t", "label", "final_score", "threshold", "gate_passed", "fast_mean_dist_from_medium"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(records)
+
+
+def compute_gate_window_stats(records: list[dict], window_size: int) -> list[dict]:
+    """Aggregate per-sample gate records into non-overlapping windows.
+
+    Per window: pass_rate (fraction of samples that passed the gate),
+    normal_gate_recall (fraction of TRUE normal samples that passed the gate
+    -- low means the gate is rejecting the normals it needs), gate_purity
+    (fraction of gated-in samples that were actually normal -- low means
+    defects are leaking through the gate), and the FAST-medium mean distance
+    at the end of the window.
+    """
+    windows = []
+    for start in range(0, len(records), window_size):
+        chunk = records[start : start + window_size]
+        n = len(chunk)
+        passed = [r for r in chunk if r["gate_passed"]]
+        true_normal = [r for r in chunk if r["label"] == 0]
+        passed_normal = [r for r in passed if r["label"] == 0]
+
+        windows.append(
+            {
+                "t": float(np.mean([r["t"] for r in chunk])),
+                "n": n,
+                "num_passed": len(passed),
+                "pass_rate": len(passed) / n,
+                "num_true_normal": len(true_normal),
+                "normal_gate_recall": (len(passed_normal) / len(true_normal)) if true_normal else float("nan"),
+                "gate_purity": (len(passed_normal) / len(passed)) if passed else float("nan"),
+                "fast_mean_dist_from_medium": chunk[-1]["fast_mean_dist_from_medium"],
+            }
+        )
+    return windows
+
+
+def write_gate_windows_csv(windows: list[dict], path: str | Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(windows[0].keys()))
+        writer.writeheader()
+        writer.writerows(windows)
