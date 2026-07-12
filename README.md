@@ -118,7 +118,7 @@ Results are written as CSV to `results/` and plots to `results/figures/`.
 ## Status
 
 - [x] Phase 1 — repo scaffold
-- [ ] Phase 2 — data loading + feature extraction + embedding cache
+- [x] Phase 2 — data loading + feature extraction + embedding cache
 - [ ] Phase 3 — memory + scorer + single-task baseline
 - [ ] Phase 4 — sequential loop, baselines (a)/(b), ACC/FM
 - [ ] Phase 5 — fast memory, score fusion, drift experiment, ablations
