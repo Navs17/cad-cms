@@ -35,9 +35,10 @@ score = w * Mahalanobis(fused medium) + (1 - w) * Mahalanobis(fast)
 ```
 
 with `w` and the EMA rate set in the config. An optional, flag-gated CutPaste
-pseudo-anomaly fine-tuning phase can lightly adapt the backbone with a 2-class
-head before task 1 (frozen afterwards); the default pipeline requires no
-training at all beyond computing statistics.
+pseudo-anomaly fine-tuning phase (`cutpaste.enabled: true` in the config) can
+lightly adapt the backbone with a 2-class head before task 1 (frozen
+afterwards); the default pipeline requires no training at all beyond
+computing statistics.
 
 ## Task protocol
 
@@ -108,6 +109,8 @@ src/cadcms/
   train.py              sequential task loop: extract -> fit memory -> eval
   evaluate.py            AUROC, ACC, FM, results writing
   plotting.py            result plots
+  cutpaste.py            optional, flag-gated: CutPaste pseudo-anomaly
+                          backbone fine-tuning before task 1 (Phase 6)
 scripts/
   check_data.py          verifies MVTec AD is laid out correctly
   run_benchmark.py       runs baselines (a) naive, (b) medium-only, (c) medium+fast
@@ -139,4 +142,4 @@ Results are written as CSV to `results/` and plots to `results/figures/`.
 - [x] Phase 3 — memory + scorer + single-task baseline
 - [x] Phase 4 — sequential loop, baselines (a)/(b), ACC/FM
 - [x] Phase 5 — fast memory, score fusion, drift experiment, ablations
-- [ ] Phase 6 (optional) — CutPaste fine-tuning
+- [x] Phase 6 (optional) — CutPaste fine-tuning

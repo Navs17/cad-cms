@@ -15,7 +15,8 @@ from typing import Optional
 import numpy as np
 import yaml
 
-from cadcms.data import build_transform, get_dataloader
+from cadcms.cutpaste import finetune_backbone_with_cutpaste
+from cadcms.data import MVTecDataset, build_transform, get_dataloader
 from cadcms.evaluate import AurocMatrix, compute_auroc
 from cadcms.features import ResNetBackbone, get_device, get_embeddings
 from cadcms.memory import ContinuumMemory, FastMemory
@@ -157,6 +158,26 @@ def run_sequential(config: dict, baseline: Optional[str] = None) -> dict:
         config["data"]["normalize_std"],
     )
 
+    backbone_name = config["backbone"]["name"]
+    if config["cutpaste"]["enabled"]:
+        # Self-supervised fine-tune on task 1's normal images only, once,
+        # before any per-task memory is fit. Mutates backbone in place and
+        # re-freezes it afterward. Use a distinct cache key so these
+        # embeddings never collide with a frozen-from-pretrained run.
+        print(f"CutPaste fine-tuning backbone on task '{tasks[0]}' train images...")
+        raw_train_dataset = MVTecDataset(config["paths"]["data_root"], tasks[0], "train", transform=None)
+        finetune_backbone_with_cutpaste(
+            backbone,
+            raw_train_dataset,
+            transform,
+            epochs=config["cutpaste"]["epochs"],
+            lr=config["cutpaste"]["lr"],
+            batch_size=config["data"]["batch_size"],
+            device=device,
+            seed=config["seed"],
+        )
+        backbone_name = f"{backbone_name}_cutpaste"
+
     train_embeddings: dict[str, np.ndarray] = {}
     test_embeddings: dict[str, np.ndarray] = {}
     test_labels: dict[str, np.ndarray] = {}
@@ -177,7 +198,7 @@ def run_sequential(config: dict, baseline: Optional[str] = None) -> dict:
                 config["paths"]["cache_dir"],
                 task_id,
                 split,
-                config["backbone"]["name"],
+                backbone_name,
                 device,
             )
             store[task_id] = batch.embeddings
