@@ -22,7 +22,8 @@ Thumbs.db
 # Project data / outputs
 data/*
 !data/README.md
-results/
+results/*
+!results/DIAGNOSIS.md
 checkpoints/
 *.pt
 *.pth
