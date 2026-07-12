@@ -56,3 +56,39 @@ def write_summary_csv(summary: dict[str, dict[str, float]], path: str | Path) ->
         writer.writerow(["baseline", "acc", "fm"])
         for baseline, metrics in summary.items():
             writer.writerow([baseline, metrics["acc"], metrics["fm"]])
+
+
+def compute_windowed_auroc(
+    t: np.ndarray,
+    labels: np.ndarray,
+    scores: np.ndarray,
+    window_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """AUROC over non-overlapping windows of a stream-ordered sequence.
+
+    ``t`` is the per-sample drift severity (used only to label each window
+    by its mean severity). Windows with only one label class present are
+    skipped, since AUROC is undefined for them.
+    """
+    window_t = []
+    window_auroc = []
+    for start in range(0, len(scores), window_size):
+        end = min(start + window_size, len(scores))
+        window_labels = labels[start:end]
+        if len(np.unique(window_labels)) < 2:
+            continue
+        window_t.append(float(np.mean(t[start:end])))
+        window_auroc.append(compute_auroc(window_labels, scores[start:end]))
+    return np.array(window_t), np.array(window_auroc)
+
+
+def write_drift_csv(window_t: np.ndarray, scores_by_method: dict[str, np.ndarray], path: str | Path) -> None:
+    """``scores_by_method``: method name -> per-window AUROC, aligned to ``window_t``."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    methods = list(scores_by_method.keys())
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["t"] + methods)
+        for i, t in enumerate(window_t):
+            writer.writerow([t] + [scores_by_method[m][i] for m in methods])

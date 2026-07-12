@@ -1,9 +1,7 @@
-"""Run baselines (a) naive and (b) medium-only from one command.
-
-(c) medium+fast lands in Phase 5.
+"""Run baselines (a) naive, (b) medium-only, and (c) medium+fast from one command.
 
 Usage:
-    python scripts/run_benchmark.py [--config configs/default.yaml] [--baselines naive medium_only]
+    python scripts/run_benchmark.py [--config configs/default.yaml] [--baselines naive medium_only medium_fast]
 """
 
 from __future__ import annotations
@@ -17,9 +15,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from cadcms.evaluate import compute_acc, compute_fm, write_auroc_csv, write_summary_csv
 from cadcms.plotting import plot_auroc_per_task
+from cadcms.train import BASELINES as IMPLEMENTED_BASELINES
 from cadcms.train import load_config, resolve_config_paths, run_sequential
-
-IMPLEMENTED_BASELINES = ["naive", "medium_only"]
 
 
 def main() -> int:

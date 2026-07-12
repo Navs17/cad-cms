@@ -76,18 +76,24 @@ pytest tests/
 
 ## Running
 
+Place MVTec AD under `data/` first (see above), then:
+
 ```bash
-# baselines (a) naive and (b) medium-only; place MVTec AD under data/ first (see above)
+# baselines (a) naive, (b) medium-only, (c) medium+fast
 python scripts/run_benchmark.py --config configs/default.yaml
 
-# not yet implemented (land in Phase 5/6):
-python scripts/run_drift.py --config configs/default.yaml       # drift experiment
-python scripts/run_ablations.py --config configs/default.yaml   # ablation sweeps
+# headline drift experiment: medium-only vs full CMS over a drifting task-1 stream
+python scripts/run_drift.py --config configs/default.yaml
+
+# ablation sweeps: shrinkage alpha, fusion method, EMA rate, fusion weight
+python scripts/run_ablations.py --config configs/default.yaml
 ```
 
 `run_benchmark.py` writes per-baseline AUROC tables to `results/auroc_<baseline>.csv`,
 an ACC/FM summary to `results/summary.csv`, and per-baseline AUROC-per-task
-plots to `results/figures/`.
+plots to `results/figures/`. `run_drift.py` writes `results/drift_stream.csv`
+and `results/figures/drift_stream.png`. `run_ablations.py` writes one
+`results/ablation_<name>.csv` per sweep.
 
 ## Repository layout
 
@@ -97,8 +103,8 @@ configs/default.yaml   all hyperparameters (tasks, image size, shrinkage,
 src/cadcms/
   data.py               MVTec datasets/loaders, drift-transform wrapper
   features.py           backbone wrapper, embedding extraction, disk caching
-  memory.py             GaussianMemory, ContinuumMemory (update/fuse/save/load)
-  scorer.py             Mahalanobis scoring, score fusion, thresholding
+  memory.py             GaussianMemory, ContinuumMemory, FastMemory (update/fuse/save/load)
+  scorer.py             Mahalanobis scoring, score fusion, streaming/thresholding
   train.py              sequential task loop: extract -> fit memory -> eval
   evaluate.py            AUROC, ACC, FM, results writing
   plotting.py            result plots
@@ -132,5 +138,5 @@ Results are written as CSV to `results/` and plots to `results/figures/`.
 - [x] Phase 2 — data loading + feature extraction + embedding cache
 - [x] Phase 3 — memory + scorer + single-task baseline
 - [x] Phase 4 — sequential loop, baselines (a)/(b), ACC/FM
-- [ ] Phase 5 — fast memory, score fusion, drift experiment, ablations
+- [x] Phase 5 — fast memory, score fusion, drift experiment, ablations
 - [ ] Phase 6 (optional) — CutPaste fine-tuning

@@ -8,6 +8,7 @@ embeddings. ``run_sequential`` wraps it with the real data pipeline
 
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +18,10 @@ import yaml
 from cadcms.data import build_transform, get_dataloader
 from cadcms.evaluate import AurocMatrix, compute_auroc
 from cadcms.features import ResNetBackbone, get_device, get_embeddings
-from cadcms.memory import ContinuumMemory
+from cadcms.memory import ContinuumMemory, FastMemory
+from cadcms.scorer import fused_mahalanobis_scores, score_stream_with_fast_memory
+
+BASELINES = ("naive", "medium_only", "medium_fast")
 
 
 def load_config(config_path: str | Path) -> dict:
@@ -48,6 +52,7 @@ def run_sequential_from_embeddings(
     fusion_num_samples: int,
     seed: int,
     memory_dir: Optional[Path] = None,
+    fast_memory_config: Optional[dict] = None,
 ) -> dict:
     """Core sequential continual-learning loop over precomputed embeddings.
 
@@ -56,17 +61,31 @@ def run_sequential_from_embeddings(
         (previous task statistics are discarded -- catastrophic forgetting).
       - "medium_only": each stage scores with the fusion of every task's
         Gaussian seen so far (DNE-style).
+      - "medium_fast": full CMS. FAST memory adapts online (EMA + confidence
+        gating + pullback) while streaming through each newly-introduced
+        task's own test set, in task order. Previously-seen tasks are
+        re-scored with the *current* (frozen at that point) FAST memory
+        state -- not re-streamed -- so measuring forgetting on task j at a
+        later stage never re-adapts FAST memory on task j's test images a
+        second time. Requires ``fast_memory_config`` with keys ema_rate,
+        pullback_coefficient, fusion_weight, confidence_percentile,
+        recent_scores_window.
     """
-    if baseline not in ("naive", "medium_only"):
-        raise NotImplementedError(
-            f"baseline {baseline!r} not supported here (medium_fast lands in Phase 5)"
-        )
+    if baseline not in BASELINES:
+        raise NotImplementedError(f"unknown baseline {baseline!r}")
+    if baseline == "medium_fast" and fast_memory_config is None:
+        raise ValueError("fast_memory_config is required for baseline='medium_fast'")
 
     continuum = ContinuumMemory(
         shrinkage_alpha=shrinkage_alpha,
         fusion_method=fusion_method,
         fusion_num_samples=fusion_num_samples,
         seed=seed,
+    )
+
+    fast_memory: Optional[FastMemory] = None
+    recent_scores: deque = deque(
+        maxlen=fast_memory_config["recent_scores_window"] if fast_memory_config else None
     )
 
     auroc_matrix: AurocMatrix = []
@@ -76,9 +95,38 @@ def run_sequential_from_embeddings(
         active_memory = task_memory if baseline == "naive" else continuum.fuse()
 
         stage_results: dict[str, float] = {}
-        for seen_task in tasks[: stage_idx + 1]:
-            scores = active_memory.mahalanobis(test_embeddings[seen_task])
-            stage_results[seen_task] = compute_auroc(test_labels[seen_task], scores)
+
+        if baseline == "medium_fast":
+            if fast_memory is None:
+                fast_memory = FastMemory(
+                    active_memory,
+                    ema_rate=fast_memory_config["ema_rate"],
+                    pullback_coefficient=fast_memory_config["pullback_coefficient"],
+                    shrinkage_alpha=shrinkage_alpha,
+                )
+            # Stream through this stage's own (newly introduced) task test set,
+            # adapting fast_memory online as we go.
+            stream_scores = score_stream_with_fast_memory(
+                test_embeddings[task_id],
+                active_memory,
+                fast_memory,
+                fast_memory_config["fusion_weight"],
+                fast_memory_config["confidence_percentile"],
+                recent_scores,
+            )
+            stage_results[task_id] = compute_auroc(test_labels[task_id], stream_scores)
+
+            # Previously-seen tasks: frozen re-scoring only, no further adaptation.
+            for seen_task in tasks[:stage_idx]:
+                scores = fused_mahalanobis_scores(
+                    active_memory, fast_memory, test_embeddings[seen_task], fast_memory_config["fusion_weight"]
+                )
+                stage_results[seen_task] = compute_auroc(test_labels[seen_task], scores)
+        else:
+            for seen_task in tasks[: stage_idx + 1]:
+                scores = active_memory.mahalanobis(test_embeddings[seen_task])
+                stage_results[seen_task] = compute_auroc(test_labels[seen_task], scores)
+
         auroc_matrix.append(stage_results)
 
         if memory_dir is not None:
@@ -147,4 +195,5 @@ def run_sequential(config: dict, baseline: Optional[str] = None) -> dict:
         fusion_num_samples=config["memory"]["fusion_num_samples"],
         seed=config["seed"],
         memory_dir=config["paths"]["memory_dir"],
+        fast_memory_config=config["fast_memory"] if baseline == "medium_fast" else None,
     )

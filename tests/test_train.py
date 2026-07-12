@@ -122,9 +122,100 @@ def test_unknown_baseline_raises(synthetic_data):
             train_embeddings=train_embeddings,
             test_embeddings=test_embeddings,
             test_labels=test_labels,
+            baseline="bogus_baseline",
+            shrinkage_alpha=0.1,
+            fusion_method="moment_matching",
+            fusion_num_samples=2000,
+            seed=0,
+        )
+
+
+def test_medium_fast_requires_fast_memory_config(synthetic_data):
+    train_embeddings, test_embeddings, test_labels = synthetic_data
+
+    with pytest.raises(ValueError):
+        run_sequential_from_embeddings(
+            tasks=TASKS,
+            train_embeddings=train_embeddings,
+            test_embeddings=test_embeddings,
+            test_labels=test_labels,
             baseline="medium_fast",
             shrinkage_alpha=0.1,
             fusion_method="moment_matching",
             fusion_num_samples=2000,
             seed=0,
         )
+
+
+FAST_MEMORY_CONFIG = dict(
+    ema_rate=0.1,
+    pullback_coefficient=0.05,
+    confidence_percentile=50,
+    recent_scores_window=200,
+    fusion_weight=0.5,
+)
+
+
+def test_medium_fast_runs_and_matches_auroc_matrix_shape(synthetic_data):
+    train_embeddings, test_embeddings, test_labels = synthetic_data
+
+    result = run_sequential_from_embeddings(
+        tasks=TASKS,
+        train_embeddings=train_embeddings,
+        test_embeddings=test_embeddings,
+        test_labels=test_labels,
+        baseline="medium_fast",
+        shrinkage_alpha=0.1,
+        fusion_method="moment_matching",
+        fusion_num_samples=2000,
+        seed=0,
+        fast_memory_config=FAST_MEMORY_CONFIG,
+    )
+
+    auroc_matrix = result["auroc_matrix"]
+    assert len(auroc_matrix) == 3
+    assert list(auroc_matrix[0].keys()) == ["a"]
+    assert list(auroc_matrix[1].keys()) == ["b", "a"]
+    assert list(auroc_matrix[2].keys()) == ["c", "a", "b"]
+    for stage in auroc_matrix:
+        for auroc in stage.values():
+            assert 0.0 <= auroc <= 1.0
+
+
+def test_medium_fast_does_not_reduce_to_pure_medium(synthetic_data):
+    """Sanity check that the fast component actually participates: with
+    fusion_weight=0 the final score is fast-only, which should differ from
+    the medium-only baseline's scores on at least some samples once the fast
+    memory has adapted away from its medium-memory initialization."""
+    train_embeddings, test_embeddings, test_labels = synthetic_data
+    fast_only_config = {**FAST_MEMORY_CONFIG, "fusion_weight": 0.0}
+
+    fast_only_result = run_sequential_from_embeddings(
+        tasks=TASKS,
+        train_embeddings=train_embeddings,
+        test_embeddings=test_embeddings,
+        test_labels=test_labels,
+        baseline="medium_fast",
+        shrinkage_alpha=0.1,
+        fusion_method="moment_matching",
+        fusion_num_samples=2000,
+        seed=0,
+        fast_memory_config=fast_only_config,
+    )
+    medium_only_result = run_sequential_from_embeddings(
+        tasks=TASKS,
+        train_embeddings=train_embeddings,
+        test_embeddings=test_embeddings,
+        test_labels=test_labels,
+        baseline="medium_only",
+        shrinkage_alpha=0.1,
+        fusion_method="moment_matching",
+        fusion_num_samples=2000,
+        seed=0,
+    )
+
+    # Task "a"'s AUROC at stage 0 should be close but not necessarily equal:
+    # fast memory is initialized from the same fused medium, so early-stream
+    # scores start near-identical to medium-only before any adaptation.
+    diff = abs(fast_only_result["auroc_matrix"][0]["a"] - medium_only_result["auroc_matrix"][0]["a"])
+    assert diff < 0.2

@@ -1,9 +1,14 @@
-"""GaussianMemory (per-task statistics) and ContinuumMemory (fusion across tasks).
+"""GaussianMemory (per-task statistics), ContinuumMemory (fusion across
+tasks), and FastMemory (test-time EMA adaptation).
 
 MEDIUM memory level: one Gaussian (mean, shrunk covariance, sample count) is
 fit per task from that task's normal training embeddings (DNE-style). At
 inference, all task Gaussians are fused into a single distribution, either by
 DNE's sample-and-refit or by closed-form moment matching of the mixture.
+
+FAST memory level: an exponential-moving-average mean/covariance updated at
+inference time from samples scored confidently normal, decaying toward the
+fused medium memory so it tracks slow drift without drifting away for good.
 """
 
 from __future__ import annotations
@@ -180,3 +185,61 @@ class ContinuumMemory:
             task_id: GaussianMemory.load(directory / f"{task_id}.npz") for task_id in task_order
         }
         return memory
+
+
+class FastMemory:
+    """Exponential-moving-average mean/covariance, updated at inference time.
+
+    Initialized from a Gaussian (typically the current fused medium memory).
+    Each ``update`` call blends in one new sample via EMA, then decays the
+    result toward ``medium_memory`` by ``pullback_coefficient`` so the fast
+    memory can track drift without permanently diverging from what's known
+    to be normal. Shrinkage is reapplied after every update to keep the
+    covariance invertible.
+    """
+
+    def __init__(
+        self,
+        initial_memory: GaussianMemory,
+        ema_rate: float,
+        pullback_coefficient: float,
+        shrinkage_alpha: float,
+    ) -> None:
+        self.mean = np.array(initial_memory.mean, dtype=np.float64, copy=True)
+        self.covariance = np.array(initial_memory.covariance, dtype=np.float64, copy=True)
+        self.ema_rate = ema_rate
+        self.pullback_coefficient = pullback_coefficient
+        self.shrinkage_alpha = shrinkage_alpha
+        self.num_updates = 0
+        self._inv_covariance: Optional[np.ndarray] = None
+
+    @property
+    def inv_covariance(self) -> np.ndarray:
+        if self._inv_covariance is None:
+            self._inv_covariance = np.linalg.inv(self.covariance)
+        return self._inv_covariance
+
+    def mahalanobis(self, embeddings: np.ndarray) -> np.ndarray:
+        embeddings = np.asarray(embeddings, dtype=np.float64)
+        diff = embeddings - self.mean
+        squared = np.einsum("ij,jk,ik->i", diff, self.inv_covariance, diff)
+        return np.sqrt(np.maximum(squared, 0.0))
+
+    def update(self, embedding: np.ndarray, medium_memory: GaussianMemory) -> None:
+        """EMA-update from one confidently-normal sample, then decay toward ``medium_memory``."""
+        embedding = np.asarray(embedding, dtype=np.float64)
+        diff = embedding - self.mean
+
+        new_mean = self.mean + self.ema_rate * diff
+        new_covariance = (1.0 - self.ema_rate) * self.covariance + self.ema_rate * np.outer(diff, diff)
+
+        new_mean = (1.0 - self.pullback_coefficient) * new_mean + self.pullback_coefficient * medium_memory.mean
+        new_covariance = (
+            (1.0 - self.pullback_coefficient) * new_covariance
+            + self.pullback_coefficient * medium_memory.covariance
+        )
+
+        self.mean = new_mean
+        self.covariance = shrink_covariance(new_covariance, self.shrinkage_alpha)
+        self._inv_covariance = None
+        self.num_updates += 1

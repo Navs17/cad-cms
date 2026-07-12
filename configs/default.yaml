@@ -35,14 +35,13 @@ memory:
   fusion_num_samples: 2000         # used only when fusion_method == sample_refit
 
 fast_memory:
-  enabled: false                   # baseline (c): medium + fast CMS. Off by default (baselines a/b).
   ema_rate: 0.01                   # EMA update rate for fast mean/covariance
   confidence_percentile: 50        # only update from samples scoring below this percentile of recent scores
   pullback_coefficient: 0.05       # decay of fast memory toward fused medium memory per update
   recent_scores_window: 200        # number of recent scores kept to compute the percentile threshold
   fusion_weight: 0.5               # w: final_score = w * maha(medium) + (1-w) * maha(fast)
 
-baseline: medium_only              # "naive" | "medium_only" | "medium_fast"
+baseline: medium_only              # "naive" | "medium_only" | "medium_fast" -- which run_sequential() uses by default
 
 cutpaste:
   enabled: false                   # Phase 6, flag-gated: pseudo-anomaly fine-tuning before task 1
@@ -53,7 +52,16 @@ evaluation:
   metrics: [auroc, acc, fm]
 
 drift:
-  enabled: false
   brightness_range: [1.0, 1.8]     # linear ramp applied across the replayed stream
   blur_sigma_range: [0.0, 3.0]
   stream_length: 500
+  window_size: 50                  # non-overlapping window size for windowed AUROC-over-stream
+
+ablations:
+  # alpha=0.0 is omitted: with a 512-dim ResNet-18 embedding and typical
+  # MVTec category train-set sizes (~200-300 < 512), the raw covariance is
+  # always singular without at least a small amount of shrinkage.
+  shrinkage_alpha_values: [0.01, 0.05, 0.1, 0.2, 0.5]
+  fusion_methods: [moment_matching, sample_refit]
+  ema_rate_values: [0.001, 0.01, 0.05, 0.1, 0.3]
+  fusion_weight_values: [0.0, 0.25, 0.5, 0.75, 1.0]

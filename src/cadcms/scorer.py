@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Sequence
 
 import numpy as np
 
-from cadcms.memory import GaussianMemory
+from cadcms.memory import FastMemory, GaussianMemory
 
 
 def mahalanobis_scores(memory: GaussianMemory, embeddings: np.ndarray) -> np.ndarray:
@@ -26,3 +27,48 @@ def percentile_threshold(recent_scores: Sequence[float], percentile: float) -> f
 
 def is_confidently_normal(score: float, threshold: float) -> bool:
     return score <= threshold
+
+
+def fused_mahalanobis_scores(
+    medium_memory: GaussianMemory,
+    fast_memory: FastMemory,
+    embeddings: np.ndarray,
+    w: float,
+) -> np.ndarray:
+    """Static (non-adapting) fused score: w * medium + (1 - w) * fast."""
+    return fuse_scores(medium_memory.mahalanobis(embeddings), fast_memory.mahalanobis(embeddings), w)
+
+
+def score_stream_with_fast_memory(
+    embeddings: np.ndarray,
+    medium_memory: GaussianMemory,
+    fast_memory: FastMemory,
+    fusion_weight: float,
+    confidence_percentile: float,
+    recent_scores: deque,
+) -> np.ndarray:
+    """Score a sequential inference stream, adapting ``fast_memory`` online.
+
+    Each sample is scored first (fused medium + fast), then -- if it scores
+    below the percentile threshold of ``recent_scores`` -- fed into
+    ``fast_memory.update``. ``recent_scores`` is mutated in place (a bounded
+    deque) so the notion of "recent" can persist across calls, spanning a
+    whole deployment stream rather than resetting per call.
+    """
+    embeddings = np.asarray(embeddings)
+    final_scores = np.empty(len(embeddings))
+
+    for i, embedding in enumerate(embeddings):
+        row = embedding.reshape(1, -1)
+        medium_score = medium_memory.mahalanobis(row)[0]
+        fast_score = fast_memory.mahalanobis(row)[0]
+        final_score = fuse_scores(medium_score, fast_score, fusion_weight)
+        final_scores[i] = final_score
+
+        if recent_scores:
+            threshold = percentile_threshold(recent_scores, confidence_percentile)
+            if is_confidently_normal(final_score, threshold):
+                fast_memory.update(embedding, medium_memory)
+        recent_scores.append(final_score)
+
+    return final_scores

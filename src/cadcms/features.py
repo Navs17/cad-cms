@@ -99,6 +99,41 @@ def extract_embeddings(
     )
 
 
+def extract_embeddings_with_t(
+    model: nn.Module,
+    dataloader: DataLoader,
+    device: torch.device,
+) -> tuple[EmbeddingBatch, np.ndarray]:
+    """Like ``extract_embeddings``, but for a drift-stream loader yielding
+    ``(image, label, path, t)`` batches (see ``data.DriftStreamDataset``).
+    Order is preserved (the dataloader must not shuffle), so the returned
+    embeddings/labels/t line up with the drift stream's position.
+    """
+    model = model.to(device)
+    model.eval()
+
+    all_embeddings: list[np.ndarray] = []
+    all_labels: list[np.ndarray] = []
+    all_paths: list[str] = []
+    all_t: list[np.ndarray] = []
+
+    with torch.no_grad():
+        for images, labels, paths, t in dataloader:
+            images = images.to(device)
+            embeddings = model(images)
+            all_embeddings.append(embeddings.cpu().numpy())
+            all_labels.append(np.asarray(labels))
+            all_paths.extend(paths)
+            all_t.append(np.asarray(t, dtype=np.float64))
+
+    batch = EmbeddingBatch(
+        embeddings=np.concatenate(all_embeddings, axis=0).astype(np.float32),
+        labels=np.concatenate(all_labels, axis=0).astype(np.int64),
+        paths=all_paths,
+    )
+    return batch, np.concatenate(all_t, axis=0)
+
+
 def cache_path(cache_dir: str | Path, category: str, split: str, backbone_name: str) -> Path:
     return Path(cache_dir) / f"{category}_{split}_{backbone_name}.npz"
 
