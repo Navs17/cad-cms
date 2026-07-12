@@ -2,6 +2,7 @@
 # Continual Anomaly Detection with a Continuum Memory System
 
 seed: 42
+seeds: [42, 43, 44, 45, 46]      # fixed seed list for multi-seed reproducibility runs (run_benchmark_seeds.py, drift sweeps)
 
 paths:
   data_root: data/MVTec-AD       # expected MVTec AD folder layout, see data/README.md
