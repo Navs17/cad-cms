@@ -76,13 +76,18 @@ pytest tests/
 
 ## Running
 
-> Scaffolding stage — commands below will be filled in as each phase lands.
-
 ```bash
-python scripts/run_benchmark.py --config configs/default.yaml   # baselines a/b/c
+# baselines (a) naive and (b) medium-only; place MVTec AD under data/ first (see above)
+python scripts/run_benchmark.py --config configs/default.yaml
+
+# not yet implemented (land in Phase 5/6):
 python scripts/run_drift.py --config configs/default.yaml       # drift experiment
 python scripts/run_ablations.py --config configs/default.yaml   # ablation sweeps
 ```
+
+`run_benchmark.py` writes per-baseline AUROC tables to `results/auroc_<baseline>.csv`,
+an ACC/FM summary to `results/summary.csv`, and per-baseline AUROC-per-task
+plots to `results/figures/`.
 
 ## Repository layout
 
@@ -126,6 +131,6 @@ Results are written as CSV to `results/` and plots to `results/figures/`.
 - [x] Phase 1 — repo scaffold
 - [x] Phase 2 — data loading + feature extraction + embedding cache
 - [x] Phase 3 — memory + scorer + single-task baseline
-- [ ] Phase 4 — sequential loop, baselines (a)/(b), ACC/FM
+- [x] Phase 4 — sequential loop, baselines (a)/(b), ACC/FM
 - [ ] Phase 5 — fast memory, score fusion, drift experiment, ablations
 - [ ] Phase 6 (optional) — CutPaste fine-tuning
