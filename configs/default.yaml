@@ -1,0 +1,59 @@
+# Default configuration for cad-cms
+# Continual Anomaly Detection with a Continuum Memory System
+
+seed: 42
+
+paths:
+  data_root: data/MVTec-AD       # expected MVTec AD folder layout, see data/README.md
+  cache_dir: data/cache          # cached embeddings (per category/split)
+  memory_dir: checkpoints/memory # per-task Gaussian memory statistics
+  results_dir: results
+  figures_dir: results/figures
+
+# Domain-incremental task sequence. Add more MVTec categories here to extend.
+tasks:
+  - pill
+  - capsule
+  - bottle
+
+data:
+  image_size: 224
+  normalize_mean: [0.485, 0.456, 0.406]  # ImageNet stats (backbone pretraining)
+  normalize_std: [0.229, 0.224, 0.225]
+  batch_size: 32
+  num_workers: 0                  # keep 0 on Windows by default; safe to raise on Colab/Linux
+
+backbone:
+  name: resnet18
+  pretrained: true
+  layer: penultimate               # global-average-pooled, L2-normalized features
+  freeze: true
+
+memory:
+  shrinkage_alpha: 0.1             # sigma_shrunk = (1-alpha)*sigma + alpha*(trace(sigma)/D)*I
+  fusion_method: moment_matching   # "sample_refit" (DNE-style) or "moment_matching" (closed-form)
+  fusion_num_samples: 2000         # used only when fusion_method == sample_refit
+
+fast_memory:
+  enabled: false                   # baseline (c): medium + fast CMS. Off by default (baselines a/b).
+  ema_rate: 0.01                   # EMA update rate for fast mean/covariance
+  confidence_percentile: 50        # only update from samples scoring below this percentile of recent scores
+  pullback_coefficient: 0.05       # decay of fast memory toward fused medium memory per update
+  recent_scores_window: 200        # number of recent scores kept to compute the percentile threshold
+  fusion_weight: 0.5               # w: final_score = w * maha(medium) + (1-w) * maha(fast)
+
+baseline: medium_only              # "naive" | "medium_only" | "medium_fast"
+
+cutpaste:
+  enabled: false                   # Phase 6, flag-gated: pseudo-anomaly fine-tuning before task 1
+  epochs: 10
+  lr: 0.001
+
+evaluation:
+  metrics: [auroc, acc, fm]
+
+drift:
+  enabled: false
+  brightness_range: [1.0, 1.8]     # linear ramp applied across the replayed stream
+  blur_sigma_range: [0.0, 3.0]
+  stream_length: 500

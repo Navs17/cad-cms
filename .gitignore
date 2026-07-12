@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data / outputs
+data/*
+!data/README.md
+results/
+checkpoints/
+*.pt
+*.pth
+*.npz
+
+# IDE
+.vscode/
+.idea/
