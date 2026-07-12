@@ -69,3 +69,10 @@ ablations:
   fusion_methods: [moment_matching, sample_refit]
   ema_rate_values: [0.001, 0.01, 0.05, 0.1, 0.3]
   fusion_weight_values: [0.0, 0.25, 0.5, 0.75, 1.0]
+
+drift_sweep:
+  # Phase C: targeted, seeded sweep on the drift experiment specifically
+  # (see results/DIAGNOSIS.md). ema_rate/confidence_percentile grid, run
+  # across every seed in `seeds`, against the medium-only reference.
+  ema_rate_values: [0.01, 0.05, 0.1, 0.3]
+  confidence_percentile_values: [50, 75, 90]
