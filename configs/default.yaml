@@ -70,6 +70,16 @@ drift:
   stream_length: 500
   window_size: 50                  # non-overlapping window size for windowed AUROC-over-stream
 
+  contamination:
+    # Rising-defect-rate stream (no image-level transform -- built directly
+    # from cached test embeddings/labels): tests whether gate-free FAST
+    # quietly "normalizes" defects as they become more common in the stream,
+    # as opposed to the monotonic color/blur stream above (visual drift only,
+    # fixed underlying normal/defect ratio).
+    stream_length: 500
+    start_defect_rate: 0.05        # mostly normal at the start (realistic production line)
+    end_defect_rate: 0.6           # heavily contaminated by the end
+
 ablations:
   # alpha=0.0 is omitted: with a 512-dim ResNet-18 embedding and typical
   # MVTec category train-set sizes (~200-300 < 512), the raw covariance is

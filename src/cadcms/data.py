@@ -1,4 +1,6 @@
-"""MVTec AD datasets/loaders and the drift-transform wrapper."""
+"""MVTec AD datasets/loaders, the drift-transform wrapper, and the
+contamination (rising-defect-rate) stream builder.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +8,7 @@ import random
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 from PIL import Image
@@ -162,3 +165,44 @@ class DriftStreamDataset(Dataset):
             image = self.transform(image)
 
         return image, label, path, t
+
+
+def build_contamination_stream(
+    embeddings: np.ndarray,
+    labels: np.ndarray,
+    length: int,
+    start_defect_rate: float,
+    end_defect_rate: float,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build a rising-defect-rate stream directly from already-extracted
+    embeddings (e.g. cached test-split embeddings/labels) -- no image-level
+    transform is involved, since only the class mix changes over the stream,
+    not any visual property, so there is nothing here that requires
+    re-running the backbone.
+
+    Samples are drawn with replacement from the normal (label 0) / defective
+    (label 1) pools of ``embeddings``/``labels``. Index ``i`` maps to
+    ``t = i / (length - 1)`` in ``[0, 1]``, with per-position defect
+    probability linearly interpolated from ``start_defect_rate`` to
+    ``end_defect_rate`` -- the same ``t`` semantics as ``DriftStreamDataset``,
+    so existing windowed-AUROC code works unchanged on this stream too.
+
+    Returns ``(stream_embeddings, stream_labels, t)``.
+    """
+    labels = np.asarray(labels)
+    normal_indices = np.flatnonzero(labels == 0)
+    defect_indices = np.flatnonzero(labels == 1)
+    if len(normal_indices) == 0 or len(defect_indices) == 0:
+        raise ValueError("contamination stream requires at least one normal and one defective sample")
+
+    rng = np.random.default_rng(seed)
+    t = np.array([i / max(length - 1, 1) for i in range(length)])
+    defect_rate = start_defect_rate + t * (end_defect_rate - start_defect_rate)
+    is_defect = rng.random(length) < defect_rate
+
+    stream_indices = np.empty(length, dtype=np.int64)
+    stream_indices[is_defect] = rng.choice(defect_indices, size=int(is_defect.sum()))
+    stream_indices[~is_defect] = rng.choice(normal_indices, size=int((~is_defect).sum()))
+
+    return embeddings[stream_indices], labels[stream_indices], t
