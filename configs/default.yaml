@@ -39,11 +39,20 @@ memory:
   fusion_num_samples: 2000         # used only when fusion_method == sample_refit
 
 fast_memory:
-  ema_rate: 0.01                   # EMA update rate for fast mean/covariance
-  confidence_percentile: 50        # only update from samples scoring below this percentile of recent scores
-  pullback_coefficient: 0.05       # decay of fast memory toward fused medium memory per update
-  recent_scores_window: 200        # number of recent scores kept to compute the percentile threshold
+  mode: gated                      # "gated" (original; see results/DIAGNOSIS.md for its documented
+                                    # drift failure) | "gatefree_slow" (Fix 3 diagnostic control:
+                                    # no confidence gate, updates from every sample, relies on a very
+                                    # slow ema_rate + strong pullback instead of gating to stay stable)
+  ema_rate: 0.01                   # EMA update rate for fast mean/covariance (mode="gated")
+  confidence_percentile: 50        # only update from samples scoring below this percentile of recent scores (mode="gated")
+  pullback_coefficient: 0.05       # decay of fast memory toward fused medium memory per update (mode="gated")
+  recent_scores_window: 200        # number of recent scores kept to compute the percentile threshold (mode="gated")
   fusion_weight: 0.5               # w: final_score = w * maha(medium) + (1-w) * maha(fast)
+  gatefree_ema_rate: 0.005         # mode="gatefree_slow": much slower than the gated default, since
+                                    # every sample contributes (no gate to filter out outliers)
+  gatefree_pullback_coefficient: 0.2  # mode="gatefree_slow": much stronger than the gated default, so
+                                       # a run of anomalous samples can't drag fast memory far before
+                                       # it's pulled back toward the fused medium
 
 baseline: medium_only              # "naive" | "medium_only" | "medium_fast" -- which run_sequential() uses by default
 

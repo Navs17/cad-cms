@@ -86,3 +86,44 @@ def score_stream_with_fast_memory(
             on_sample(i, final_score, threshold, gate_passed)
 
     return final_scores
+
+
+def score_stream_gatefree(
+    embeddings: np.ndarray,
+    medium_memory: GaussianMemory,
+    fast_memory: FastMemory,
+    fusion_weight: float,
+    on_sample: Optional[Callable[[int, float], None]] = None,
+) -> np.ndarray:
+    """Score a sequential inference stream with NO confidence gate (Fix 3
+    diagnostic control): every sample updates ``fast_memory`` unconditionally.
+
+    Intended for use with a ``fast_memory`` built with a very slow
+    ``ema_rate`` and a strong ``pullback_coefficient`` (see
+    ``configs/default.yaml``'s ``fast_memory.gatefree_ema_rate`` /
+    ``gatefree_pullback_coefficient``), so that no gate is needed to keep a
+    handful of anomalous samples from dragging the fast memory off course --
+    the slow rate and strong pullback do that job instead. This tests
+    whether the gate itself was the problem (see results/DIAGNOSIS.md) or
+    whether unconditional adaptation quietly "normalizes" defects instead.
+
+    ``on_sample``, if given, is called after each sample with
+    ``(index, final_score)`` -- purely an observation hook, same contract as
+    ``score_stream_with_fast_memory``'s hook.
+    """
+    embeddings = np.asarray(embeddings)
+    final_scores = np.empty(len(embeddings))
+
+    for i, embedding in enumerate(embeddings):
+        row = embedding.reshape(1, -1)
+        medium_score = medium_memory.mahalanobis(row)[0]
+        fast_score = fast_memory.mahalanobis(row)[0]
+        final_score = fuse_scores(medium_score, fast_score, fusion_weight)
+        final_scores[i] = final_score
+
+        fast_memory.update(embedding, medium_memory)
+
+        if on_sample is not None:
+            on_sample(i, final_score)
+
+    return final_scores

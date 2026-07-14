@@ -11,6 +11,7 @@ from cadcms.scorer import (
     is_confidently_normal,
     mahalanobis_scores,
     percentile_threshold,
+    score_stream_gatefree,
     score_stream_with_fast_memory,
 )
 
@@ -139,3 +140,44 @@ def test_on_sample_hook_reports_correct_gate_decisions():
     assert records[0][3] is True  # near-mean sample should pass the gate
     assert records[1][3] is False  # far outlier should fail the gate
     assert records[0][2] is not None and records[1][2] is not None  # history was non-empty for both
+
+
+def test_score_stream_gatefree_updates_from_every_sample_including_outliers():
+    medium = GaussianMemory(mean=np.zeros(4), covariance=np.eye(4), count=100)
+    fast = FastMemory(medium, ema_rate=0.005, pullback_coefficient=0.2, shrinkage_alpha=0.1, mode="gatefree_slow")
+
+    # Unlike the gated stream, a huge outlier must still trigger an update here.
+    embeddings = np.array([[0.0, 0.0, 0.0, 0.0], [100.0, 100.0, 100.0, 100.0], [0.1, 0.0, 0.0, 0.0]])
+
+    scores = score_stream_gatefree(embeddings, medium, fast, fusion_weight=0.5)
+
+    assert len(scores) == 3
+    assert fast.num_updates == 3
+
+
+def test_score_stream_gatefree_strong_pullback_limits_outlier_drift():
+    medium = GaussianMemory(mean=np.zeros(4), covariance=np.eye(4), count=100)
+    fast = FastMemory(medium, ema_rate=0.005, pullback_coefficient=0.2, shrinkage_alpha=0.1, mode="gatefree_slow")
+
+    # A short run of extreme outliers, fed unconditionally (no gate).
+    outliers = np.tile(np.array([50.0, 50.0, 50.0, 50.0]), (20, 1))
+    score_stream_gatefree(outliers, medium, fast, fusion_weight=0.5)
+
+    # Slow rate + strong pullback should keep fast memory's mean much closer
+    # to the medium mean than to the outliers themselves.
+    dist_to_medium = np.linalg.norm(fast.mean - medium.mean)
+    dist_to_outlier = np.linalg.norm(fast.mean - outliers[0])
+    assert dist_to_medium < dist_to_outlier
+
+
+def test_score_stream_gatefree_on_sample_hook_reports_index_and_score():
+    medium = GaussianMemory(mean=np.zeros(4), covariance=np.eye(4), count=100)
+    fast = FastMemory(medium, ema_rate=0.005, pullback_coefficient=0.2, shrinkage_alpha=0.1, mode="gatefree_slow")
+    embeddings = np.array([[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]])
+
+    records = []
+    score_stream_gatefree(
+        embeddings, medium, fast, fusion_weight=0.5, on_sample=lambda i, score: records.append((i, score))
+    )
+
+    assert [r[0] for r in records] == [0, 1]

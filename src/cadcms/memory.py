@@ -187,6 +187,9 @@ class ContinuumMemory:
         return memory
 
 
+FAST_MEMORY_MODES = ("gated", "gatefree_slow")
+
+
 class FastMemory:
     """Exponential-moving-average mean/covariance, updated at inference time.
 
@@ -196,6 +199,13 @@ class FastMemory:
     memory can track drift without permanently diverging from what's known
     to be normal. Shrinkage is reapplied after every update to keep the
     covariance invertible.
+
+    ``update``'s math never depends on ``mode`` -- it is a purely descriptive
+    label (used by callers/config to pick hyperparameters and by diagnostics
+    to know which regime produced a given instance). The actual decision of
+    *whether* to call ``update`` for a given sample (the confidence gate, or
+    its absence) lives in the caller -- see ``scorer.score_stream_with_fast_memory``
+    (mode="gated") and ``scorer.score_stream_gatefree`` (mode="gatefree_slow").
     """
 
     def __init__(
@@ -204,12 +214,17 @@ class FastMemory:
         ema_rate: float,
         pullback_coefficient: float,
         shrinkage_alpha: float,
+        mode: str = "gated",
     ) -> None:
+        if mode not in FAST_MEMORY_MODES:
+            raise ValueError(f"unknown FastMemory mode {mode!r}, expected one of {FAST_MEMORY_MODES}")
+
         self.mean = np.array(initial_memory.mean, dtype=np.float64, copy=True)
         self.covariance = np.array(initial_memory.covariance, dtype=np.float64, copy=True)
         self.ema_rate = ema_rate
         self.pullback_coefficient = pullback_coefficient
         self.shrinkage_alpha = shrinkage_alpha
+        self.mode = mode
         self.num_updates = 0
         self._inv_covariance: Optional[np.ndarray] = None
 

@@ -1,6 +1,7 @@
 """FastMemory: EMA convergence to a stationary mean, and pullback decay."""
 
 import numpy as np
+import pytest
 
 from cadcms.memory import FastMemory, GaussianMemory
 
@@ -62,3 +63,35 @@ def test_mahalanobis_and_num_updates():
     assert fast.num_updates == 1
     scores_after = fast.mahalanobis(np.array([[1.0, 0.0, 0.0]]))
     assert scores_before[0] != scores_after[0]
+
+
+def test_mode_defaults_to_gated_and_does_not_affect_update_math():
+    initial = GaussianMemory(mean=np.zeros(3), covariance=np.eye(3), count=10)
+
+    default_mode = FastMemory(initial, ema_rate=0.1, pullback_coefficient=0.05, shrinkage_alpha=0.1)
+    explicit_gated = FastMemory(
+        initial, ema_rate=0.1, pullback_coefficient=0.05, shrinkage_alpha=0.1, mode="gated"
+    )
+    gatefree = FastMemory(
+        initial, ema_rate=0.1, pullback_coefficient=0.05, shrinkage_alpha=0.1, mode="gatefree_slow"
+    )
+
+    assert default_mode.mode == "gated"
+    assert explicit_gated.mode == "gated"
+    assert gatefree.mode == "gatefree_slow"
+
+    sample = np.array([2.0, -1.0, 0.5])
+    default_mode.update(sample, initial)
+    explicit_gated.update(sample, initial)
+    gatefree.update(sample, initial)
+
+    # mode is a label only -- update()'s math is identical regardless.
+    np.testing.assert_allclose(default_mode.mean, explicit_gated.mean)
+    np.testing.assert_allclose(default_mode.mean, gatefree.mean)
+    np.testing.assert_allclose(default_mode.covariance, gatefree.covariance)
+
+
+def test_invalid_mode_raises():
+    initial = GaussianMemory(mean=np.zeros(3), covariance=np.eye(3), count=10)
+    with pytest.raises(ValueError):
+        FastMemory(initial, ema_rate=0.1, pullback_coefficient=0.05, shrinkage_alpha=0.1, mode="bogus")
