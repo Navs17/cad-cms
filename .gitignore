@@ -24,6 +24,7 @@ data/*
 !data/README.md
 results/*
 !results/DIAGNOSIS.md
+!results/FIX3_RESULTS.md
 checkpoints/
 *.pt
 *.pth
