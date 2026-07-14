@@ -79,6 +79,9 @@ drift:
     stream_length: 500
     start_defect_rate: 0.05        # mostly normal at the start (realistic production line)
     end_defect_rate: 0.6           # heavily contaminated by the end
+    window_size: 100               # larger than drift.window_size: at a 5% starting defect
+                                    # rate, a window of 50 has a non-trivial chance of landing
+                                    # all-normal (no AUROC defined); 100 makes that rare
 
 ablations:
   # alpha=0.0 is omitted: with a 512-dim ResNet-18 embedding and typical

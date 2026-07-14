@@ -219,3 +219,70 @@ def test_medium_fast_does_not_reduce_to_pure_medium(synthetic_data):
     # scores start near-identical to medium-only before any adaptation.
     diff = abs(fast_only_result["auroc_matrix"][0]["a"] - medium_only_result["auroc_matrix"][0]["a"])
     assert diff < 0.2
+
+
+GATEFREE_FAST_MEMORY_CONFIG = dict(
+    mode="gatefree_slow",
+    gatefree_ema_rate=0.005,
+    gatefree_pullback_coefficient=0.2,
+    fusion_weight=0.5,
+    # ema_rate/pullback_coefficient/confidence_percentile intentionally
+    # absent -- gatefree_slow must not read the gated-mode keys.
+    recent_scores_window=200,
+)
+
+
+def test_medium_fast_gatefree_slow_mode_runs(synthetic_data):
+    train_embeddings, test_embeddings, test_labels = synthetic_data
+
+    result = run_sequential_from_embeddings(
+        tasks=TASKS,
+        train_embeddings=train_embeddings,
+        test_embeddings=test_embeddings,
+        test_labels=test_labels,
+        baseline="medium_fast",
+        shrinkage_alpha=0.1,
+        fusion_method="moment_matching",
+        fusion_num_samples=2000,
+        seed=0,
+        fast_memory_config=GATEFREE_FAST_MEMORY_CONFIG,
+    )
+
+    auroc_matrix = result["auroc_matrix"]
+    assert len(auroc_matrix) == 3
+    for stage in auroc_matrix:
+        for auroc in stage.values():
+            assert 0.0 <= auroc <= 1.0
+
+
+def test_medium_fast_default_mode_is_gated(synthetic_data):
+    """FAST_MEMORY_CONFIG has no "mode" key -- must fall back to "gated",
+    not silently do something else (backward compatibility)."""
+    train_embeddings, test_embeddings, test_labels = synthetic_data
+
+    with_default = run_sequential_from_embeddings(
+        tasks=TASKS,
+        train_embeddings=train_embeddings,
+        test_embeddings=test_embeddings,
+        test_labels=test_labels,
+        baseline="medium_fast",
+        shrinkage_alpha=0.1,
+        fusion_method="moment_matching",
+        fusion_num_samples=2000,
+        seed=0,
+        fast_memory_config=FAST_MEMORY_CONFIG,
+    )
+    with_explicit_gated = run_sequential_from_embeddings(
+        tasks=TASKS,
+        train_embeddings=train_embeddings,
+        test_embeddings=test_embeddings,
+        test_labels=test_labels,
+        baseline="medium_fast",
+        shrinkage_alpha=0.1,
+        fusion_method="moment_matching",
+        fusion_num_samples=2000,
+        seed=0,
+        fast_memory_config={**FAST_MEMORY_CONFIG, "mode": "gated"},
+    )
+
+    assert with_default["auroc_matrix"] == with_explicit_gated["auroc_matrix"]

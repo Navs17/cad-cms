@@ -20,7 +20,7 @@ from cadcms.data import MVTecDataset, build_transform, get_dataloader
 from cadcms.evaluate import AurocMatrix, compute_auroc
 from cadcms.features import ResNetBackbone, get_device, get_embeddings
 from cadcms.memory import ContinuumMemory, FastMemory
-from cadcms.scorer import fused_mahalanobis_scores, score_stream_with_fast_memory
+from cadcms.scorer import fused_mahalanobis_scores, score_stream_gatefree, score_stream_with_fast_memory
 
 BASELINES = ("naive", "medium_only", "medium_fast")
 
@@ -70,7 +70,13 @@ def run_sequential_from_embeddings(
         later stage never re-adapts FAST memory on task j's test images a
         second time. Requires ``fast_memory_config`` with keys ema_rate,
         pullback_coefficient, fusion_weight, confidence_percentile,
-        recent_scores_window.
+        recent_scores_window. ``fast_memory_config.get("mode", "gated")``
+        selects between the original confidence-gated adaptation
+        (``score_stream_with_fast_memory``) and the gate-free slow variant
+        (Fix 3, ``score_stream_gatefree``, using
+        ``fast_memory_config["gatefree_ema_rate"]``/
+        ``["gatefree_pullback_coefficient"]`` instead of
+        ``["ema_rate"]``/``["pullback_coefficient"]``).
     """
     if baseline not in BASELINES:
         raise NotImplementedError(f"unknown baseline {baseline!r}")
@@ -98,23 +104,39 @@ def run_sequential_from_embeddings(
         stage_results: dict[str, float] = {}
 
         if baseline == "medium_fast":
+            mode = fast_memory_config.get("mode", "gated")
             if fast_memory is None:
+                if mode == "gated":
+                    init_ema_rate = fast_memory_config["ema_rate"]
+                    init_pullback = fast_memory_config["pullback_coefficient"]
+                else:  # gatefree_slow
+                    init_ema_rate = fast_memory_config["gatefree_ema_rate"]
+                    init_pullback = fast_memory_config["gatefree_pullback_coefficient"]
                 fast_memory = FastMemory(
                     active_memory,
-                    ema_rate=fast_memory_config["ema_rate"],
-                    pullback_coefficient=fast_memory_config["pullback_coefficient"],
+                    ema_rate=init_ema_rate,
+                    pullback_coefficient=init_pullback,
                     shrinkage_alpha=shrinkage_alpha,
+                    mode=mode,
                 )
             # Stream through this stage's own (newly introduced) task test set,
             # adapting fast_memory online as we go.
-            stream_scores = score_stream_with_fast_memory(
-                test_embeddings[task_id],
-                active_memory,
-                fast_memory,
-                fast_memory_config["fusion_weight"],
-                fast_memory_config["confidence_percentile"],
-                recent_scores,
-            )
+            if mode == "gated":
+                stream_scores = score_stream_with_fast_memory(
+                    test_embeddings[task_id],
+                    active_memory,
+                    fast_memory,
+                    fast_memory_config["fusion_weight"],
+                    fast_memory_config["confidence_percentile"],
+                    recent_scores,
+                )
+            else:  # gatefree_slow
+                stream_scores = score_stream_gatefree(
+                    test_embeddings[task_id],
+                    active_memory,
+                    fast_memory,
+                    fast_memory_config["fusion_weight"],
+                )
             stage_results[task_id] = compute_auroc(test_labels[task_id], stream_scores)
 
             # Previously-seen tasks: frozen re-scoring only, no further adaptation.
